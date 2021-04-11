@@ -49,3 +49,4 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+/cwc_cartes.egg-info/
