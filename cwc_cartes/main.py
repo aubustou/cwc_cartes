@@ -31,6 +31,8 @@ class Unit:
 
     images: list[Path]
 
+    invisible: bool = False  # Do not generate a card for this unit
+
     def __post_init__(self):
         self.images = [BACKGROUND_PICTURE_FOLDER / x for x in self.images]
 
@@ -278,37 +280,49 @@ def draw_text_box(notes: str, flavour: str) -> Image:
 
 def generate_card(unit: Unit) -> None:
     for index, infile in enumerate(unit.images):
+        if unit.invisible:
+            continue
+
         card_image = Image.new("RGBA", CARD_SIZE)
 
         # Copy generated parts onto final image
-        for image, box, has_transparency in [
-            (fit_background_image(infile), (0, 0), False),
-            (get_flag(unit.country), (964, 14), True),
-            (draw_name_box(unit.name, unit.arm), (0, 0), True),
-            (
-                draw_stat_box(
-                    unit.move, unit.attacks, unit.range, unit.hits, unit.save
+        try:
+            for image, box, has_transparency in [
+                (fit_background_image(infile), (0, 0), False),
+                (get_flag(unit.country), (964, 14), True),
+                (draw_name_box(unit.name, unit.arm), (0, 0), True),
+                (
+                    draw_stat_box(
+                        unit.move, unit.attacks, unit.range, unit.hits, unit.save
+                    ),
+                    (0, 0),
+                    True,
                 ),
-                (0, 0),
-                True,
-            ),
-            (draw_text_box(unit.notes, unit.flavour), (0, 0), True),
-        ]:
-            card_image.paste(image, box, image if has_transparency else None)
+                (draw_text_box(unit.notes, unit.flavour), (0, 0), True),
+            ]:
+                card_image.paste(image, box, image if has_transparency else None)
+        except Exception as e:
+            logging.error("Error found while processing %s: %s", unit.name, e)
+            continue
+        else:
 
-        card_image.save(
-            str(
-                BACKGROUND_PICTURE_FOLDER
-                / "generated"
-                / (
-                    "_".join(
-                        [unit.country.upper(), unit.camelcase_name(), str(index + 1)]
+            card_image.save(
+                str(
+                    BACKGROUND_PICTURE_FOLDER
+                    / "generated"
+                    / (
+                        "_".join(
+                            [
+                                unit.country.upper(),
+                                unit.camelcase_name(),
+                                str(index + 1),
+                            ]
+                        )
+                        + ".png"
                     )
-                    + ".png"
-                )
-            ),
-            "PNG",
-        )
+                ),
+                "PNG",
+            )
 
 
 def main():
@@ -327,7 +341,7 @@ def main():
     (BACKGROUND_PICTURE_FOLDER / "generated").mkdir(exist_ok=True)
     json_file = args.folder / "units.json"
 
-    unit_list = json.load(json_file.open())
+    unit_list = json.load(json_file.open(encoding="utf-8"))
     for unit in [deserialize(Unit, x) for x in unit_list]:
         generate_card(unit)
 
