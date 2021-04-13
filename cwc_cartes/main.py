@@ -3,11 +3,13 @@ import logging
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Union
 
+import requests
 from PIL import Image
 from PIL import ImageDraw, ImageFont
 from PIL import ImageOps
-from apischema import deserialize
+from apischema import deserialize, ValidationError
 
 BACKGROUND_PICTURE_FOLDER: Path = Path()
 ROOT_FOLDER = Path(__file__).parent
@@ -29,12 +31,16 @@ class Unit:
 
     flavour: str
 
-    images: list[Path]
+    images: list[Union[str, Path]]
 
     invisible: bool = False  # Do not generate a card for this unit
 
     def __post_init__(self):
-        self.images = [BACKGROUND_PICTURE_FOLDER / x for x in self.images]
+        self.images = [
+            BACKGROUND_PICTURE_FOLDER / x
+            for x in self.images
+            if not (x.startswith("http://") or x.startswith("https://"))
+        ]
 
     def camelcase_name(self):
         return self.name.replace(" ", "_")
@@ -44,11 +50,17 @@ CARD_X = 1050
 CARD_Y = 750
 CARD_SIZE = (CARD_X, CARD_Y)
 CARD_RATIO = CARD_SIZE[0] / CARD_SIZE[1]
+BLEEDING_MARGIN = 36
 
 COLOUR_CODE = "#678198cc"
 
 
-def fit_background_image(file_: Path) -> Image:
+def fit_background_image(file_: Union[Path, str]) -> Image:
+    if isinstance(file_, str) and file_.startswith("http"):
+        r = requests.get(file_, stream=True)
+        r.raw.decode_content = True  # handle spurious Content-Encoding
+        file_ = r.raw
+
     with Image.open(file_) as im:
         logging.info(
             "Found picture %s, %s, %sx%s in %s",
@@ -278,7 +290,7 @@ def draw_text_box(notes: str, flavour: str) -> Image:
     return image
 
 
-def generate_card(unit: Unit) -> None:
+def generate_card(unit: Unit, rotate: bool, add_bleeding_margins: bool) -> None:
     for index, infile in enumerate(unit.images):
         if unit.invisible:
             continue
@@ -305,6 +317,14 @@ def generate_card(unit: Unit) -> None:
             logging.error("Error found while processing %s: %s", unit.name, e)
             continue
         else:
+            if add_bleeding_margins:
+                card_image = ImageOps.expand(
+                    card_image, BLEEDING_MARGIN, fill=(1, 0, 0)
+                )
+
+            if rotate:
+                logging.warning("Rotation")
+                card_image = card_image.rotate(90)
 
             card_image.save(
                 str(
@@ -328,12 +348,21 @@ def generate_card(unit: Unit) -> None:
 def main():
     global BACKGROUND_PICTURE_FOLDER
 
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.WARNING)
     parser = ArgumentParser(description="Generate cards from info")
     parser.add_argument(
         "folder",
         type=Path,
         help="folder containing the background pictures and the JSON units.json",
+    )
+    parser.add_argument(
+        "-rotate", action="store_true", default=False, help="Rotate the card by 90°"
+    )
+    parser.add_argument(
+        "-no-bleeding-margins",
+        action="store_true",
+        default=False,
+        help="Do not add bleeding margin around the cards",
     )
 
     args = parser.parse_args()
@@ -342,8 +371,15 @@ def main():
     json_file = args.folder / "units.json"
 
     unit_list = json.load(json_file.open(encoding="utf-8"))
-    for unit in [deserialize(Unit, x) for x in unit_list]:
-        generate_card(unit)
+    deserialized_units = []
+    for unit in unit_list:
+        try:
+            deserialized_units.append(deserialize(Unit, unit))
+        except ValidationError as e:
+            logging.error("Error on %s", unit)
+            raise e
+    for unit in deserialized_units:
+        generate_card(unit, args.rotate, not args.no_bleeding_margins)
 
 
 if __name__ == "__main__":

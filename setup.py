@@ -16,5 +16,6 @@ setup(
         "setuptools==49.2.1",
         "Pillow==8.2.0",
         "apischema==0.14.7",
+        "requests==2.25.1",
     ],
 )
