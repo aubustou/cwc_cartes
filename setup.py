@@ -13,7 +13,7 @@ setup(
     ),
     python_requires=">=3.9",
     install_requires=[
-        "setuptools==49.2.1",
+        "setuptools==65.5.1",
         "Pillow==9.3.0",
         "apischema==0.14.7",
         "requests==2.25.1",
